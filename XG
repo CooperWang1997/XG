@@ -1,0 +1,65 @@
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/security/Pausable.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
+
+contract XGToken is ERC20, Ownable, Pausable, ERC20Burnable {
+    mapping(address => bool) blacklist;
+    mapping(address => uint256) lastTransactionTime;
+    mapping(address => uint256) dailySellLimit;
+
+    address public taxReceiver;
+    uint256 public taxRate;
+    address public rewardReceiver;
+
+    constructor() ERC20("XG", "XG") {
+        _mint(msg.sender, 50000000000 * 10 ** decimals());
+        taxReceiver = 0xc74527e7057D34D4d9ba9A3B849e19C6d595312E;
+        taxRate = 1; // 1%
+        rewardReceiver = 0xF9EA120b9021fdc1254cE24E6F71c4fF0a2Fed99;
+    }
+
+    function transfer(address recipient, uint256 amount) public override whenNotPaused returns (bool) {
+        require(!blacklist[msg.sender], "You are blacklisted");
+        require(amount <= dailySellLimit[msg.sender], "Sell amount exceeds daily limit");
+
+        uint256 tax = amount * taxRate / 100;
+        uint256 netAmount = amount - tax;
+
+        _transfer(_msgSender(), taxReceiver, tax);
+        _transfer(_msgSender(), recipient, netAmount);
+
+        if (block.timestamp > lastTransactionTime[msg.sender] + 1 days) {
+            dailySellLimit[msg.sender] = 5000000 * 10 ** decimals();
+        } else {
+            dailySellLimit[msg.sender] -= amount;
+        }
+        lastTransactionTime[msg.sender] = block.timestamp;
+
+        _mint(rewardReceiver, totalSupply() / 100000000);
+
+        return true;
+    }
+
+    function pause() public onlyOwner {
+        _pause();
+    }
+
+    function unpause() public onlyOwner {
+        _unpause();
+    }
+
+    function addToBlacklist(address account) public onlyOwner {
+        blacklist[account] = true;
+    }
+
+    function removeFromBlacklist(address account) public onlyOwner {
+        blacklist[account] = false;
+    }
+
+    function setDailySellLimit(address account, uint256 amount) public onlyOwner {
+        dailySellLimit[account] = amount;
+    }
+}
